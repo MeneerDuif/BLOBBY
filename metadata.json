@@ -1,0 +1,5 @@
+{
+  "name": "BLOBBY: Parenthood Planner",
+  "description": "A scrollable, zoomable interactive timeline to plan and visualize the journey of pregnancy and early parenthood. Powered by Gemini to suggest key literary milestones.",
+  "requestFramePermissions": []
+}
