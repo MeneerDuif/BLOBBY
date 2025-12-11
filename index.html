@@ -36,10 +36,10 @@
   "imports": {
     "d3-scale": "https://esm.run/d3-scale",
     "d3-time": "https://esm.run/d3-time",
-    "@google/genai": "https://esm.run/@google/genai",
     "react": "https://esm.sh/react@^19.2.1",
+    "lucide-react": "https://esm.sh/lucide-react@^0.560.0",
     "react/": "https://esm.sh/react@^19.2.1/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.560.0"
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0"
   }
 }
 </script>
@@ -98,11 +98,6 @@
                 <button onclick="app.openEditor(null, 'marker')" class="flex items-center space-x-1 bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-all text-sm font-medium">
                     <i data-lucide="flag" class="text-pink-500" width="16"></i>
                     <span class="hidden sm:inline">Add Cue</span>
-                </button>
-
-                <button id="btn-generate" onclick="app.generatePlan()" class="flex items-center space-x-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 transition-all shadow-md hover:shadow-lg text-sm font-medium">
-                    <i data-lucide="wand-2" width="18"></i>
-                    <span class="hidden sm:inline">AI Plan</span>
                 </button>
 
                 <div class="h-8 w-px bg-slate-200 mx-1 hidden md:block"></div>
@@ -276,7 +271,6 @@
 
     <script type="module">
         import * as d3 from "d3-scale";
-        import { GoogleGenAI, Type } from "@google/genai";
 
         // --- CONSTANTS ---
         const COLORS = {
@@ -559,93 +553,6 @@
                     }
                 };
                 reader.readAsText(file);
-            },
-
-            generatePlan: async () => {
-                const btn = document.getElementById('btn-generate');
-                btn.disabled = true;
-                btn.innerHTML = `<i data-lucide="loader-2" class="animate-spin" width="18"></i> Generating...`;
-                lucide.createIcons();
-
-                try {
-                    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                    const dueDateStr = app.formatDateForInput(state.dueDate);
-                    
-                    const prompt = `I am expecting a baby on ${dueDateStr}. 
-                    Focus on the period from 3 months before due date to 6 months after.
-                    Generate a JSON list of:
-                    1. Milestones (category: MILESTONE)
-                    2. Logistics To-Dos (category: TODO)
-                    3. Medical Appts (category: MEDICAL)
-                    4. Fun Facts (category: FACT)
-                    
-                    Schema: [{ title, description, daysOffsetFromDue (number), category (one of MILESTONE, TODO, MEDICAL, FACT, OTHER) }]`;
-
-                    const response = await ai.models.generateContent({
-                        model: "gemini-2.5-flash",
-                        contents: prompt,
-                        config: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        title: { type: Type.STRING },
-                                        description: { type: Type.STRING },
-                                        daysOffsetFromDue: { type: Type.NUMBER },
-                                        category: { type: Type.STRING, enum: Object.keys(COLORS) }
-                                    },
-                                    required: ["title", "description", "daysOffsetFromDue", "category"]
-                                }
-                            }
-                        }
-                    });
-
-                    const raw = JSON.parse(response.text);
-                    const newEvents = raw.map(item => {
-                        const date = new Date(state.dueDate);
-                        date.setDate(date.getDate() + item.daysOffsetFromDue);
-                        
-                        // Auto-assign styles
-                        let variant = 'modern';
-                        let type = 'standard';
-                        let color = COLORS[item.category] || COLORS.OTHER;
-                        
-                        if (item.category === 'FACT') {
-                            variant = 'postit';
-                            color = '#fef08a'; // Yellow-200
-                        } else if (item.category === 'TODO') {
-                            variant = 'simple';
-                        } else if (item.category === 'MILESTONE') {
-                            variant = 'robust';
-                        }
-
-                        return {
-                            id: crypto.randomUUID(),
-                            title: item.title,
-                            description: item.description,
-                            date: app.formatDateForInput(date),
-                            category: item.category,
-                            color: color,
-                            type: type,
-                            variant: variant,
-                            icon: item.category === 'MILESTONE' ? 'star' : 'flag',
-                            isCompleted: false
-                        };
-                    });
-
-                    state.events = [...state.events, ...newEvents];
-                    app.saveData();
-                    app.renderTimeline();
-                } catch (e) {
-                    console.error(e);
-                    alert("Failed to generate plan.");
-                } finally {
-                    btn.disabled = false;
-                    btn.innerHTML = `<i data-lucide="wand-2" width="18"></i> <span class="hidden sm:inline">AI Plan</span>`;
-                    lucide.createIcons();
-                }
             },
 
             toggleNotes: () => {
