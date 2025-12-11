@@ -12,7 +12,7 @@
       .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); }
       
       /* Connection lines */
-      .connection-path { fill: none; transition: all 0.3s; pointer-events: none; opacity: 0.8; stroke-linecap: round; }
+      .connection-path { fill: none; transition: all 0.3s; pointer-events: none; opacity: 0.8; stroke-linecap: round; stroke-linejoin: round; }
       .connection-hit-area { fill: none; stroke: transparent; stroke-width: 15px; cursor: pointer; pointer-events: stroke; }
       .connection-hit-area:hover + .connection-path { stroke-width: 4px !important; opacity: 1; filter: drop-shadow(0 0 3px rgba(0,0,0,0.2)); }
       
@@ -38,8 +38,8 @@
     "d3-time": "https://esm.run/d3-time",
     "@google/genai": "https://esm.run/@google/genai",
     "react": "https://esm.sh/react@^19.2.1",
-    "lucide-react": "https://esm.sh/lucide-react@^0.560.0",
-    "react/": "https://esm.sh/react@^19.2.1/"
+    "react/": "https://esm.sh/react@^19.2.1/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.560.0"
   }
 }
 </script>
@@ -359,6 +359,18 @@
                 setTimeout(() => app.scrollToDue(), 100);
             },
 
+            // --- CONNECTION LOGIC ---
+
+            getConnectorPath: (x1, y1, x2, y2) => {
+                // If points are aligned horizontally or vertically (with tolerance), straight line
+                if (Math.abs(y1 - y2) < 5 || Math.abs(x1 - x2) < 5) {
+                    return `M ${x1} ${y1} L ${x2} ${y2}`;
+                }
+                // Otherwise, stepped line (H-V-H)
+                const midX = (x1 + x2) / 2;
+                return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+            },
+
             // --- DRAG AND DROP LOGIC ---
             
             handleDragStart: (e, id) => {
@@ -414,10 +426,7 @@
                         
                         const line = document.getElementById('drag-line');
                         if (line) {
-                            // Simple curve to mouse pointer
-                            const cx = (x1 + mouseX) / 2;
-                            const cy = (y1 + mouseY) / 2;
-                            line.setAttribute("d", `M ${x1} ${y1} Q ${cx} ${cy} ${mouseX} ${mouseY}`);
+                            line.setAttribute("d", app.getConnectorPath(x1, y1, mouseX, mouseY));
                         }
                     }
                 }
@@ -914,18 +923,17 @@
                         const y1 = fromEv.type === 'marker' ? 55 : 100;
                         const y2 = toEv.type === 'marker' ? 55 : 100;
                         
-                        const cx = (x1 + x2) / 2;
-                        const dist = Math.abs(x2 - x1);
-                        const cy = Math.max(y1, y2) + Math.min(150, dist * 0.3);
+                        // Updated to use Orthogonal path logic
+                        const d = app.getConnectorPath(x1, y1, x2, y2);
                         
                         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                        path.setAttribute("d", `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
+                        path.setAttribute("d", d);
                         path.setAttribute("class", "connection-path");
                         path.setAttribute("stroke", fromEv.color);
                         path.setAttribute("stroke-width", "2");
                         
                         const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                        hitArea.setAttribute("d", `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
+                        hitArea.setAttribute("d", d);
                         hitArea.setAttribute("class", "connection-hit-area");
                         
                         const deleteHandler = (e) => {
