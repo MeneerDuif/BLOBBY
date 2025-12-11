@@ -20,6 +20,15 @@
       .is-dragging { cursor: grabbing !important; }
       .drag-target-hover { transform: scale(1.1); filter: brightness(1.1); }
       
+      /* Selection Visuals */
+      .selected-event .event-visual { ring: 2px solid #3b82f6; ring-offset: 2px; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3); z-index: 50 !important; }
+      #selection-marquee { position: absolute; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); pointer-events: none; z-index: 100; display: none; }
+
+      /* Connector Handle */
+      .connector-handle { opacity: 0; transition: opacity 0.2s; cursor: crosshair; }
+      .group:hover .connector-handle { opacity: 1; }
+      .connector-handle:hover { transform: scale(1.2); }
+      
       .notes-open { transform: translateY(0); }
       .notes-closed { transform: translateY(calc(100% - 40px)); }
       
@@ -36,10 +45,10 @@
   "imports": {
     "d3-scale": "https://esm.run/d3-scale",
     "d3-time": "https://esm.run/d3-time",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
     "react": "https://esm.sh/react@^19.2.1",
     "lucide-react": "https://esm.sh/lucide-react@^0.560.0",
-    "react/": "https://esm.sh/react@^19.2.1/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.33.0"
+    "react/": "https://esm.sh/react@^19.2.1/"
   }
 }
 </script>
@@ -85,6 +94,11 @@
             <!-- Controls -->
             <div class="flex items-center space-x-3">
                 
+                <button onclick="app.openHelp()" class="flex items-center space-x-1 bg-slate-50 border border-slate-200 text-slate-600 px-2 py-2 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-all text-sm font-medium" title="Instructions">
+                     <i data-lucide="help-circle" width="18"></i>
+                     <span class="hidden sm:inline">Help</span>
+                </button>
+
                 <button onclick="app.scrollToDate(new Date())" class="flex items-center space-x-1 bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-all text-sm font-medium" title="Jump to Today">
                     <i data-lucide="calendar-clock" class="text-slate-500" width="16"></i>
                     <span class="hidden sm:inline">Today</span>
@@ -129,8 +143,11 @@
             <button onclick="app.zoom(5)" class="p-2 hover:bg-slate-100 rounded-md text-slate-600"><i data-lucide="zoom-in" width="20"></i></button>
         </div>
 
-        <div id="timeline-container" class="w-full h-full overflow-x-auto overflow-y-hidden relative no-scrollbar cursor-crosshair">
+        <div id="timeline-container" class="w-full h-full overflow-x-auto overflow-y-hidden relative no-scrollbar">
             <div id="timeline-track" class="relative h-full min-w-full">
+                <!-- Selection Marquee -->
+                <div id="selection-marquee"></div>
+
                 <!-- Grid Layer -->
                 <div id="timeline-grid" class="absolute top-0 left-0 w-full h-full pointer-events-none z-0"></div>
 
@@ -145,7 +162,7 @@
                 <div id="timeline-events"></div>
                 
                 <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-slate-400 text-sm pointer-events-none bg-white/50 px-2 rounded backdrop-blur-sm">
-                    <span id="instruction-text">Scroll to explore • Click empty space to add event • Drag markers to connect</span>
+                    <span id="instruction-text">Drag empty space to select multiple • Drag event to move • Drag small handle to connect</span>
                 </div>
             </div>
         </div>
@@ -163,6 +180,74 @@
             </button>
         </div>
         <textarea id="notes-area" class="w-full h-40 p-4 bg-transparent outline-none text-sm text-slate-700 resize-none font-medium leading-relaxed" placeholder="Write your thoughts, questions for the doctor, or shopping lists here..."></textarea>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center p-5 border-b flex-shrink-0 bg-slate-50">
+                <div class="flex items-center gap-2">
+                    <div class="bg-indigo-100 p-1.5 rounded-md text-indigo-600">
+                        <i data-lucide="book-open" width="20"></i>
+                    </div>
+                    <h2 class="text-xl font-bold text-slate-800">How to use BLOBBY</h2>
+                </div>
+                <button onclick="app.closeHelp()" class="p-1 hover:bg-slate-200 rounded-full transition-colors"><i data-lucide="x" class="text-slate-500" width="20"></i></button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto space-y-6 text-slate-600">
+                <!-- Navigation -->
+                <div class="flex gap-4">
+                    <div class="flex-none bg-slate-100 h-10 w-10 rounded-full flex items-center justify-center text-slate-500"><i data-lucide="move-horizontal" width="20"></i></div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-sm uppercase tracking-wide mb-1">Navigation</h3>
+                        <p class="text-sm leading-relaxed">Scroll horizontally (Shift+Scroll or trackpad) to move through time. Use the floating controls in the top-right to <span class="font-bold text-slate-800">Zoom In/Out</span> or jump to Today.</p>
+                    </div>
+                </div>
+
+                <div class="h-px bg-slate-100"></div>
+
+                <!-- Creating -->
+                <div class="flex gap-4">
+                    <div class="flex-none bg-slate-100 h-10 w-10 rounded-full flex items-center justify-center text-slate-500"><i data-lucide="plus-circle" width="20"></i></div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-sm uppercase tracking-wide mb-1">Adding Items</h3>
+                        <p class="text-sm leading-relaxed"><span class="font-bold text-slate-800">Click anywhere</span> on the empty timeline grid to create a new Event Card. Use the "Add Cue" button in the header to add Visual Markers (flags/pins).</p>
+                    </div>
+                </div>
+
+                <div class="h-px bg-slate-100"></div>
+
+                <!-- Selection & Moving -->
+                <div class="flex gap-4">
+                    <div class="flex-none bg-slate-100 h-10 w-10 rounded-full flex items-center justify-center text-slate-500"><i data-lucide="mouse-pointer-2" width="20"></i></div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-sm uppercase tracking-wide mb-1">Selection & Moving</h3>
+                        <ul class="text-sm space-y-2 list-disc pl-4 mt-1">
+                            <li><span class="font-bold text-slate-800">Move Single:</span> Simply drag any event to a new date.</li>
+                            <li><span class="font-bold text-slate-800">Group Select:</span> Click and drag on empty space to draw a selection box around multiple items.</li>
+                            <li><span class="font-bold text-slate-800">Group Move:</span> Once items are selected (highlighted blue), drag any one of them to move the entire group together.</li>
+                            <li><span class="font-bold text-slate-800">Multi-Select:</span> Hold Shift + Click to toggle individual items.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="h-px bg-slate-100"></div>
+
+                <!-- Connecting -->
+                <div class="flex gap-4">
+                    <div class="flex-none bg-slate-100 h-10 w-10 rounded-full flex items-center justify-center text-slate-500"><i data-lucide="link" width="20"></i></div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-sm uppercase tracking-wide mb-1">Connecting Events</h3>
+                        <p class="text-sm leading-relaxed">Hover over any event to see a <span class="font-bold text-slate-800">small circle handle</span> appear on the right side. Drag from this handle to another event to create a dependency line.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-5 border-t bg-slate-50 flex justify-end">
+                 <button onclick="app.closeHelp()" class="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 font-medium">Got it</button>
+            </div>
+        </div>
     </div>
 
     <!-- Event Editor Modal -->
@@ -308,7 +393,12 @@
             currentEditorType: 'standard',
             drawerCategory: null,
             dragSourceId: null,
-            editingId: null // Explicitly track what we are editing
+            editingId: null,
+            // New selection & group move state
+            selectedIds: new Set(),
+            interactionMode: 'NONE', // 'SELECT', 'MOVE', 'CONNECT'
+            startMouse: { x: 0, y: 0 },
+            draggedEventsInitialDates: {} // Map id -> Date string
         };
 
         // --- INIT ---
@@ -321,21 +411,13 @@
                 app.updateClock();
                 setInterval(app.updateClock, 1000);
                 
-                // Add global mouse events for dragging
-                document.addEventListener('mousemove', app.handleDragMove);
-                document.addEventListener('mouseup', app.handleDragEnd);
+                // --- GLOBAL INTERACTION HANDLERS ---
+                const container = document.getElementById('timeline-container');
+                container.addEventListener('mousedown', app.handleMouseDown);
+                window.addEventListener('mousemove', app.handleMouseMove);
+                window.addEventListener('mouseup', app.handleMouseUp);
 
-                // Event Listeners
-                document.getElementById('timeline-container').addEventListener('click', (e) => {
-                    if (e.target.id === 'timeline-track' || e.target.id === 'timeline-container' || e.target.id === 'timeline-grid') {
-                        const rect = document.getElementById('timeline-container').getBoundingClientRect();
-                        const scrollLeft = document.getElementById('timeline-container').scrollLeft;
-                        const clickX = e.clientX - rect.left + scrollLeft;
-                        const date = app.getDateFromX(clickX);
-                        app.openEditor(null, 'standard', date);
-                    }
-                });
-
+                // Editor Date Change listener (re-render)
                 document.getElementById('due-date-input').addEventListener('change', (e) => {
                     state.dueDate = new Date(e.target.value);
                     app.saveData();
@@ -350,31 +432,262 @@
                     app.saveData();
                 });
 
-                setTimeout(() => app.scrollToDue(), 100);
+                setTimeout(() => app.scrollToDate(new Date(), 'left'), 100);
             },
 
-            // --- CONNECTION LOGIC ---
+            // --- INSTRUCTIONS MODAL ---
+            openHelp: () => {
+                document.getElementById('help-modal').classList.remove('hidden');
+            },
 
-            getConnectorPath: (x1, y1, x2, y2) => {
-                // If points are aligned horizontally or vertically (with tolerance), straight line
-                if (Math.abs(y1 - y2) < 5 || Math.abs(x1 - x2) < 5) {
-                    return `M ${x1} ${y1} L ${x2} ${y2}`;
+            closeHelp: () => {
+                document.getElementById('help-modal').classList.add('hidden');
+            },
+
+            // --- INTERACTION LOGIC ---
+
+            handleMouseDown: (e) => {
+                // If interacting with scrollbar or header, ignore
+                if (e.target.closest('header') || e.target.closest('#editor-modal')) return;
+
+                // Check what we clicked
+                const handleEl = e.target.closest('.connector-handle');
+                const eventEl = e.target.closest('.event-item');
+                const trackEl = document.getElementById('timeline-track');
+                const container = document.getElementById('timeline-container');
+                
+                state.startMouse = { x: e.clientX, y: e.clientY };
+
+                if (handleEl) {
+                    // MODE: CONNECT
+                    state.interactionMode = 'CONNECT';
+                    const eventId = eventEl.dataset.id;
+                    state.dragSourceId = eventId;
+                    
+                    // Init connection line
+                    app.createDragLine(e, eventId);
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                } else if (eventEl) {
+                    // MODE: MOVE (or select)
+                    const eventId = eventEl.dataset.id;
+                    
+                    // Logic: Shift Key or Normal Click
+                    if (e.shiftKey) {
+                        if (state.selectedIds.has(eventId)) {
+                            state.selectedIds.delete(eventId);
+                        } else {
+                            state.selectedIds.add(eventId);
+                        }
+                        app.renderTimeline(); // Re-render to show selection ring
+                        return; // Don't start drag immediately on shift-click toggle
+                    } else {
+                        // If clicking an item NOT in selection, clear and select this one
+                        if (!state.selectedIds.has(eventId)) {
+                            state.selectedIds.clear();
+                            state.selectedIds.add(eventId);
+                            app.renderTimeline();
+                        }
+                    }
+
+                    state.interactionMode = 'MOVE';
+                    
+                    // Snapshot initial dates for all selected items
+                    state.draggedEventsInitialDates = {};
+                    state.selectedIds.forEach(id => {
+                        const ev = state.events.find(ev => ev.id === id);
+                        if (ev) state.draggedEventsInitialDates[id] = new Date(ev.date);
+                    });
+                    
+                    container.classList.add('is-dragging');
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                } else {
+                    // MODE: SELECT (Marquee)
+                    // Only if clicking on the background track/grid
+                    if (e.target === trackEl || e.target === container || e.target.id === 'timeline-grid') {
+                         state.interactionMode = 'SELECT';
+                         // Clear existing selection unless shift
+                         if (!e.shiftKey) {
+                             state.selectedIds.clear();
+                             app.renderTimeline();
+                         }
+                         
+                         const marquee = document.getElementById('selection-marquee');
+                         marquee.style.display = 'block';
+                         marquee.style.width = '0px';
+                         marquee.style.height = '0px';
+                         
+                         // Relative to track
+                         const rect = container.getBoundingClientRect();
+                         const scrollLeft = container.scrollLeft;
+                         const startX = e.clientX - rect.left + scrollLeft;
+                         const startY = e.clientY - rect.top;
+                         
+                         state.marqueeStart = { x: startX, y: startY };
+                         
+                         marquee.style.left = startX + 'px';
+                         marquee.style.top = startY + 'px';
+                    }
                 }
-                // Otherwise, stepped line (H-V-H)
-                const midX = (x1 + x2) / 2;
-                return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
             },
 
-            // --- DRAG AND DROP LOGIC ---
-            
-            handleDragStart: (e, id) => {
-                // Determine if it's a left click (standard click)
-                if (e.button !== 0) return;
+            handleMouseMove: (e) => {
+                if (state.interactionMode === 'NONE') return;
+
+                const container = document.getElementById('timeline-container');
+                const rect = container.getBoundingClientRect();
+
+                if (state.interactionMode === 'MOVE') {
+                    // Calculate time delta based on pixels moved
+                    const dx = e.clientX - state.startMouse.x;
+                    
+                    // Convert pixels to ms
+                    // zoom = pixels per day
+                    // dx / zoom = days moved
+                    const daysMoved = dx / state.zoom;
+                    
+                    // Update all selected events in state (visual only first?) 
+                    // To keep it responsive, we update state and re-render. 
+                    // Optimize: In vanilla JS, we can just transform the elements. 
+                    // But updating date is cleaner for logic.
+                    // Let's update state and re-render standard timeline, it is fast enough for <100 items.
+                    
+                    state.selectedIds.forEach(id => {
+                        const initialDate = state.draggedEventsInitialDates[id];
+                        if (initialDate) {
+                            const newDate = new Date(initialDate);
+                            // Add decimal days
+                            newDate.setTime(initialDate.getTime() + (daysMoved * 24 * 60 * 60 * 1000));
+                            
+                            const evIndex = state.events.findIndex(ev => ev.id === id);
+                            if (evIndex !== -1) {
+                                state.events[evIndex].date = app.formatDateForInput(newDate);
+                            }
+                        }
+                    });
+                    
+                    app.renderTimeline();
+                }
+
+                if (state.interactionMode === 'CONNECT') {
+                    app.updateDragLine(e);
+                }
+
+                if (state.interactionMode === 'SELECT') {
+                    const scrollLeft = container.scrollLeft;
+                    const currX = e.clientX - rect.left + scrollLeft;
+                    const currY = e.clientY - rect.top;
+                    
+                    const startX = state.marqueeStart.x;
+                    const startY = state.marqueeStart.y;
+                    
+                    const x = Math.min(currX, startX);
+                    const y = Math.min(currY, startY);
+                    const w = Math.abs(currX - startX);
+                    const h = Math.abs(currY - startY);
+                    
+                    const marquee = document.getElementById('selection-marquee');
+                    marquee.style.left = x + 'px';
+                    marquee.style.top = y + 'px';
+                    marquee.style.width = w + 'px';
+                    marquee.style.height = h + 'px';
+                }
+            },
+
+            handleMouseUp: (e) => {
+                if (state.interactionMode === 'NONE') return;
+
+                const container = document.getElementById('timeline-container');
                 
-                state.dragSourceId = id;
-                state.dragStartCoords = { x: e.clientX, y: e.clientY };
-                
-                // Create drag line element
+                // Finalize MOVE
+                if (state.interactionMode === 'MOVE') {
+                    // Check if it was a tiny movement (click)
+                    const dist = Math.sqrt(Math.pow(e.clientX - state.startMouse.x, 2) + Math.pow(e.clientY - state.startMouse.y, 2));
+                    
+                    if (dist < 3) {
+                        // It was a click, open editor for the single item clicked
+                        // (We know only 1 item is likely in the set if user didn't shift-click)
+                        // But if multiple selected, don't open editor.
+                        if (state.selectedIds.size === 1) {
+                            const id = Array.from(state.selectedIds)[0];
+                            app.openEditor(id);
+                        }
+                    } else {
+                        app.saveData(); // Commit changes
+                    }
+                    container.classList.remove('is-dragging');
+                }
+
+                // Finalize CONNECT
+                if (state.interactionMode === 'CONNECT') {
+                    // Check drop target
+                    const targetEl = e.target.closest('.event-item');
+                    const sourceId = state.dragSourceId;
+                    
+                    if (targetEl) {
+                        const targetId = targetEl.dataset.id;
+                        if (targetId && targetId !== sourceId) {
+                            const exists = state.connections.find(c => 
+                                (c.from === sourceId && c.to === targetId) || 
+                                (c.from === targetId && c.to === sourceId)
+                            );
+                            if (!exists) {
+                                state.connections.push({ id: crypto.randomUUID(), from: sourceId, to: targetId });
+                                app.saveData();
+                            }
+                        }
+                    }
+                    // Cleanup line
+                    const line = document.getElementById('drag-line');
+                    if (line) line.remove();
+                    app.renderTimeline();
+                }
+
+                // Finalize SELECT
+                if (state.interactionMode === 'SELECT') {
+                    const marquee = document.getElementById('selection-marquee');
+                    
+                    // Get selection bounds relative to viewport for intersection check
+                    const mRect = marquee.getBoundingClientRect();
+                    
+                    // Hide marquee
+                    marquee.style.display = 'none';
+                    
+                    // Check intersections
+                    if (mRect.width > 2 || mRect.height > 2) {
+                        document.querySelectorAll('.event-item').forEach(el => {
+                            const eRect = el.getBoundingClientRect();
+                            // Simple AABB intersection
+                            if (!(mRect.right < eRect.left || 
+                                  mRect.left > eRect.right || 
+                                  mRect.bottom < eRect.top || 
+                                  mRect.top > eRect.bottom)) {
+                                state.selectedIds.add(el.dataset.id);
+                            }
+                        });
+                    } else {
+                        // Just a click on background -> Add event?
+                        // Determine date from X
+                        const rect = container.getBoundingClientRect();
+                        const scrollLeft = container.scrollLeft;
+                        const clickX = e.clientX - rect.left + scrollLeft;
+                        const date = app.getDateFromX(clickX);
+                        app.openEditor(null, 'standard', date);
+                    }
+                    
+                    app.renderTimeline();
+                }
+
+                state.interactionMode = 'NONE';
+                state.dragSourceId = null;
+            },
+
+            // --- CONNECTION UTILS ---
+
+            createDragLine: (e, id) => {
                 const svg = document.getElementById('timeline-connections');
                 const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 line.setAttribute("id", "drag-line");
@@ -387,87 +700,36 @@
                      line.setAttribute("stroke", sourceEvent.color);
                      line.setAttribute("stroke-width", "3");
                 }
-                
                 svg.appendChild(line);
-                
-                // Prevent text selection during drag
-                document.body.style.userSelect = 'none';
             },
 
-            handleDragMove: (e) => {
-                if (!state.dragSourceId) return;
-
+            updateDragLine: (e) => {
                 const container = document.getElementById('timeline-container');
                 const rect = container.getBoundingClientRect();
+                const sourceEvent = state.events.find(ev => ev.id === state.dragSourceId);
                 
-                // Calculate drag distance to determine if it's a "drag" or just a "click"
-                const dx = e.clientX - state.dragStartCoords.x;
-                const dy = e.clientY - state.dragStartCoords.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                
-                if (dist > 5) {
-                    container.classList.add('is-dragging');
+                if (sourceEvent && app.timeScale) {
+                    const x1 = app.timeScale(new Date(sourceEvent.date));
+                    const y1 = sourceEvent.type === 'marker' ? 55 : 100; 
                     
-                    // Draw Line
-                    const sourceEvent = state.events.find(ev => ev.id === state.dragSourceId);
-                    if (sourceEvent && app.timeScale) {
-                        const x1 = app.timeScale(new Date(sourceEvent.date));
-                        // Approximate vertical center for cards vs markers
-                        const y1 = sourceEvent.type === 'marker' ? 55 : 100; 
-                        
-                        const mouseX = e.clientX - rect.left + container.scrollLeft;
-                        const mouseY = e.clientY - rect.top;
-                        
-                        const line = document.getElementById('drag-line');
-                        if (line) {
-                            line.setAttribute("d", app.getConnectorPath(x1, y1, mouseX, mouseY));
-                        }
+                    const mouseX = e.clientX - rect.left + container.scrollLeft;
+                    const mouseY = e.clientY - rect.top;
+                    
+                    const line = document.getElementById('drag-line');
+                    if (line) {
+                        line.setAttribute("d", app.getConnectorPath(x1, y1, mouseX, mouseY));
                     }
                 }
             },
 
-            handleDragEnd: (e, targetId) => {
-                if (!state.dragSourceId) return;
-
-                const sourceId = state.dragSourceId;
-                const container = document.getElementById('timeline-container');
-                
-                // Cleanup visuals
-                const line = document.getElementById('drag-line');
-                if (line) line.remove();
-                container.classList.remove('is-dragging');
-                document.body.style.userSelect = '';
-                
-                // Logic: Click vs Drag
-                const dx = e.clientX - state.dragStartCoords.x;
-                const dy = e.clientY - state.dragStartCoords.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                
-                state.dragSourceId = null;
-                state.dragStartCoords = null;
-
-                if (dist < 5) {
-                    // It was a click, open editor for source
-                    // (Unless we clicked a handle, but handles are gone now)
-                    app.openEditor(sourceId);
-                } else {
-                    // It was a drag. Check if we dropped on a valid target
-                    // Note: 'targetId' comes from the onmouseup handler on the cue elements
-                    if (targetId && typeof targetId === 'string' && targetId !== sourceId) {
-                        // Create Connection
-                        // Check if exists
-                        const exists = state.connections.find(c => 
-                            (c.from === sourceId && c.to === targetId) || 
-                            (c.from === targetId && c.to === sourceId)
-                        );
-                        
-                        if (!exists) {
-                            state.connections.push({ id: crypto.randomUUID(), from: sourceId, to: targetId });
-                            app.saveData();
-                            app.renderTimeline();
-                        }
-                    }
+            getConnectorPath: (x1, y1, x2, y2) => {
+                // If points are aligned horizontally or vertically (with tolerance), straight line
+                if (Math.abs(y1 - y2) < 5 || Math.abs(x1 - x2) < 5) {
+                    return `M ${x1} ${y1} L ${x2} ${y2}`;
                 }
+                // Otherwise, stepped line (H-V-H)
+                const midX = (x1 + x2) / 2;
+                return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
             },
 
             updateClock: () => {
@@ -582,11 +844,15 @@
                 app.scrollToDate(state.dueDate);
             },
 
-            scrollToDate: (date) => {
+            scrollToDate: (date, align = 'center') => {
                 if(!app.timeScale) return;
                 const x = app.timeScale(date);
                 const container = document.getElementById('timeline-container');
-                container.scrollLeft = x - container.clientWidth / 2;
+                if (align === 'left') {
+                    container.scrollLeft = x - 50;
+                } else {
+                    container.scrollLeft = x - container.clientWidth / 2;
+                }
             },
 
             renderTimeline: () => {
@@ -600,7 +866,7 @@
                 
                 // Update instruction text
                 const instr = document.getElementById('instruction-text');
-                instr.innerHTML = 'Scroll to explore • Click empty space to add event • Drag markers to connect';
+                instr.innerHTML = 'Drag empty space to select multiple • Drag event to move • Drag small handle to connect';
 
                 const axisHTML = [];
                 const gridHTML = [];
@@ -659,18 +925,21 @@
                     </div>
                 `;
 
+                // --- RENDERING ITEMS WITH HANDLES AND SELECTION STATES ---
+
                 // Custom Markers
                 const markers = state.events.filter(e => e.type === 'marker');
                 markers.forEach(ev => {
                     const x = app.timeScale(new Date(ev.date));
                     const iconEl = `<i data-lucide="${ev.icon || 'star'}" width="20" height="20"></i>`;
                     const variant = ev.variant || 'badge';
+                    const isSelected = state.selectedIds.has(ev.id);
 
                     // Marker Variants
                     let markerInner = '';
                     if (variant === 'pin') {
                          markerInner = `
-                            <div class="cursor-pointer hover:-translate-y-1 transition-transform relative text-white">
+                            <div class="cursor-pointer hover:-translate-y-1 transition-transform relative text-white event-visual">
                                 <div class="w-8 h-8 rounded-t-full rounded-bl-full rotate-45 flex items-center justify-center shadow-md border-2 border-white" style="background-color: ${ev.color};">
                                     <div class="-rotate-45">${iconEl}</div>
                                 </div>
@@ -678,7 +947,7 @@
                         `;
                     } else if (variant === 'orb') {
                         markerInner = `
-                            <div class="cursor-pointer hover:scale-110 transition-transform relative">
+                            <div class="cursor-pointer hover:scale-110 transition-transform relative event-visual">
                                 <div class="w-8 h-8 rounded-full shadow-[0_0_15px_rgba(0,0,0,0.2)] border-2 border-white flex items-center justify-center backdrop-blur-sm" style="background: radial-gradient(circle at 30% 30%, white, ${ev.color});">
                                      <div class="text-slate-900 opacity-70">${iconEl}</div>
                                 </div>
@@ -687,21 +956,25 @@
                     } else {
                         // Default Badge
                         markerInner = `
-                            <div class="cursor-pointer hover:scale-110 transition-transform p-2 rounded-full shadow-lg border-4 border-slate-50 relative text-white" style="background-color: ${ev.color}">
+                            <div class="cursor-pointer hover:scale-110 transition-transform p-2 rounded-full shadow-lg border-4 border-slate-50 relative text-white event-visual" style="background-color: ${ev.color}">
                                 ${iconEl}
                             </div>
                         `;
                     }
+                    
+                    // Handle Dot
+                    const handleHTML = `
+                        <div class="connector-handle absolute -right-3 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-slate-400 rounded-full flex items-center justify-center shadow-sm hover:border-pink-500 hover:text-pink-500 z-50">
+                            <i data-lucide="link" width="8"></i>
+                        </div>
+                    `;
 
                     const markerHTML = `
                         <div class="absolute top-[50px] bottom-0 w-1 pointer-events-none z-0 opacity-80" style="left: ${x}px; transform: translateX(-50%); background: linear-gradient(to bottom, ${ev.color}, transparent);"></div>
-                        <div class="absolute top-[26px] z-30 transform -translate-x-1/2 left-[${x}px]" style="left: ${x}px">
-                            <div 
-                                class="flex flex-col items-center group relative hover:z-40"
-                                onmousedown="app.handleDragStart(event, '${ev.id}')"
-                                onmouseup="app.handleDragEnd(event, '${ev.id}')"
-                            >
+                        <div class="absolute top-[26px] z-30 transform -translate-x-1/2 left-[${x}px] event-item ${isSelected ? 'selected-event' : ''}" style="left: ${x}px" data-id="${ev.id}">
+                            <div class="flex flex-col items-center group relative hover:z-40">
                                 ${markerInner}
+                                ${handleHTML}
                                 <div class="mt-1 bg-white/90 backdrop-blur text-[11px] font-bold px-3 py-0.5 rounded-full border shadow-sm whitespace-nowrap flex flex-col items-center pointer-events-none select-none" style="color: ${ev.color}; border-color: ${ev.color}">
                                     <span>${ev.title}</span>
                                 </div>
@@ -731,9 +1004,10 @@
 
                     const top = HEADER_H + PADDING + (laneIdx * (ROW_H + (ev.variant === 'postit' ? 20 : 0))); // Extra spacing for postits
                     const isDone = ev.isCompleted;
+                    const isSelected = state.selectedIds.has(ev.id);
                     
                     let contentHTML = '';
-                    let wrapperClass = `absolute group transition-all duration-200 cursor-pointer hover:z-20 ${isDone ? 'opacity-60 grayscale-[0.5]' : ''}`;
+                    let wrapperClass = `absolute group transition-all duration-200 cursor-pointer hover:z-20 event-item ${isDone ? 'opacity-60 grayscale-[0.5]' : ''} ${isSelected ? 'selected-event' : ''}`;
                     const variant = ev.variant || 'modern';
                     
                     // --- VARIANT RENDERERS ---
@@ -745,7 +1019,7 @@
                         wrapperClass += ` ${rot} ${hover}`;
                         
                         contentHTML = `
-                            <div class="bg-[#fef08a] text-yellow-900 p-3 shadow-md w-[150px] min-h-[80px] relative font-serif" style="background-color: ${ev.color}">
+                            <div class="bg-[#fef08a] text-yellow-900 p-3 shadow-md w-[150px] min-h-[80px] relative font-serif event-visual" style="background-color: ${ev.color}">
                                 <div class="absolute -top-2 left-1/2 -translate-x-1/2 w-16 h-4 bg-white/40 opacity-50 rotate-1"></div>
                                 <h4 class="font-bold text-sm leading-tight mb-1 italic pointer-events-none select-none">${ev.title}</h4>
                                 <p class="text-[10px] opacity-90 leading-tight line-clamp-3 pointer-events-none select-none">${ev.description || ''}</p>
@@ -756,7 +1030,7 @@
                         // SIMPLE / TODO STYLE
                         wrapperClass += ' hover:scale-105';
                         contentHTML = `
-                             <div class="bg-white border rounded p-2 w-[150px] flex items-center space-x-2 shadow-sm hover:border-blue-400 group-hover:shadow-md transition-all" style="border-color: ${isDone ? '#cbd5e1' : ev.color}">
+                             <div class="bg-white border rounded p-2 w-[150px] flex items-center space-x-2 shadow-sm hover:border-blue-400 group-hover:shadow-md transition-all event-visual" style="border-color: ${isDone ? '#cbd5e1' : ev.color}">
                                 <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style="border-color: ${ev.color}">
                                     ${isDone ? `<div class="w-2 h-2 rounded-full bg-slate-400"></div>` : ''}
                                 </div>
@@ -768,7 +1042,7 @@
                         // ROBUST / MILESTONE STYLE
                         wrapperClass += ' hover:-translate-y-1';
                         contentHTML = `
-                            <div class="bg-white border-2 border-slate-900 rounded-lg overflow-hidden w-[170px] shadow-hard">
+                            <div class="bg-white border-2 border-slate-900 rounded-lg overflow-hidden w-[170px] shadow-hard event-visual">
                                 <div class="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider flex justify-between items-center" style="background-color: ${ev.color === '#f59e0b' ? '#0f172a' : ev.color}">
                                     <span class="pointer-events-none select-none">${ev.category}</span>
                                     ${isDone ? '<i data-lucide="check" width="12"></i>' : ''}
@@ -785,7 +1059,7 @@
                         wrapperClass += ' hover:scale-105';
                         const iconCheck = isDone ? `<i data-lucide="check-circle-2" class="text-green-500 mt-0.5 flex-shrink-0" width="12"></i>` : '';
                         contentHTML = `
-                             <div class="rounded-lg shadow-sm border p-2 text-left relative overflow-hidden flex items-start space-x-2 bg-white" style="border-left: 4px solid ${isDone ? '#cbd5e1' : ev.color}">
+                             <div class="rounded-lg shadow-sm border p-2 text-left relative overflow-hidden flex items-start space-x-2 bg-white event-visual" style="border-left: 4px solid ${isDone ? '#cbd5e1' : ev.color}">
                                 ${iconCheck}
                                 <div class="flex-1 min-w-0">
                                     <h4 class="font-semibold text-xs truncate ${isDone ? 'line-through text-slate-500' : 'text-slate-800'} pointer-events-none select-none">${ev.title}</h4>
@@ -794,16 +1068,23 @@
                             </div>
                         `;
                     }
+                    
+                    // Handle Dot
+                    const handleHTML = `
+                        <div class="connector-handle absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-slate-400 rounded-full flex items-center justify-center shadow-sm hover:border-pink-500 hover:text-pink-500 z-50">
+                            <i data-lucide="link" width="8"></i>
+                        </div>
+                    `;
 
                     const cardHTML = `
                         <div 
                             class="${wrapperClass}" 
                             style="left: ${x}px; top: ${top}px;"
-                            onmousedown="app.handleDragStart(event, '${ev.id}')"
-                            onmouseup="app.handleDragEnd(event, '${ev.id}')"
+                            data-id="${ev.id}"
                         >
                             ${variant !== 'postit' ? `<div class="absolute h-full w-0.5 bg-slate-300 -top-4 left-0 -z-10 group-hover:bg-slate-400 transition-colors" style="height: 20px;"></div>` : ''}
                             ${contentHTML}
+                            ${handleHTML}
                         </div>
                     `;
                     eventsEl.innerHTML += cardHTML;
