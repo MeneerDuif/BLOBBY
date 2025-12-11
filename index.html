@@ -10,12 +10,16 @@
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); }
-      .cue-handle { transition: all 0.2s ease; opacity: 0; transform: scale(0.8); }
-      .group:hover .cue-handle { opacity: 1; transform: scale(1); }
-      .cue-handle:hover { transform: scale(1.5); background-color: #ec4899; }
+      
       /* Connection lines */
-      .connection-path { fill: none; stroke: #cbd5e1; stroke-width: 2px; transition: stroke 0.3s; pointer-events: stroke; }
-      .connection-path:hover { stroke: #ec4899; stroke-width: 3px; cursor: pointer; }
+      .connection-path { fill: none; transition: all 0.3s; pointer-events: none; opacity: 0.8; stroke-linecap: round; }
+      .connection-hit-area { fill: none; stroke: transparent; stroke-width: 15px; cursor: pointer; pointer-events: stroke; }
+      .connection-hit-area:hover + .connection-path { stroke-width: 4px !important; opacity: 1; filter: drop-shadow(0 0 3px rgba(0,0,0,0.2)); }
+      
+      /* Dragging visuals */
+      .is-dragging { cursor: grabbing !important; }
+      .drag-target-hover { transform: scale(1.1); filter: brightness(1.1); }
+      
       .notes-open { transform: translateY(0); }
       .notes-closed { transform: translateY(calc(100% - 40px)); }
       
@@ -145,8 +149,8 @@
                 <div id="timeline-markers"></div>
                 <div id="timeline-events"></div>
                 
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-slate-400 text-sm pointer-events-none">
-                    Scroll to explore • Click empty space to add event
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-slate-400 text-sm pointer-events-none bg-white/50 px-2 rounded backdrop-blur-sm">
+                    <span id="instruction-text">Scroll to explore • Click empty space to add event • Drag markers to connect</span>
                 </div>
             </div>
         </div>
@@ -309,7 +313,7 @@
             zoom: 25, // px per day
             currentEditorType: 'standard',
             drawerCategory: null,
-            connectingSourceId: null,
+            dragSourceId: null,
             editingId: null // Explicitly track what we are editing
         };
 
@@ -323,13 +327,12 @@
                 app.updateClock();
                 setInterval(app.updateClock, 1000);
                 
+                // Add global mouse events for dragging
+                document.addEventListener('mousemove', app.handleDragMove);
+                document.addEventListener('mouseup', app.handleDragEnd);
+
                 // Event Listeners
                 document.getElementById('timeline-container').addEventListener('click', (e) => {
-                    if (state.connectingSourceId && !e.target.closest('.cue-handle')) {
-                        state.connectingSourceId = null;
-                        app.renderTimeline();
-                    }
-
                     if (e.target.id === 'timeline-track' || e.target.id === 'timeline-container' || e.target.id === 'timeline-grid') {
                         const rect = document.getElementById('timeline-container').getBoundingClientRect();
                         const scrollLeft = document.getElementById('timeline-container').scrollLeft;
@@ -354,6 +357,114 @@
                 });
 
                 setTimeout(() => app.scrollToDue(), 100);
+            },
+
+            // --- DRAG AND DROP LOGIC ---
+            
+            handleDragStart: (e, id) => {
+                // Determine if it's a left click (standard click)
+                if (e.button !== 0) return;
+                
+                state.dragSourceId = id;
+                state.dragStartCoords = { x: e.clientX, y: e.clientY };
+                
+                // Create drag line element
+                const svg = document.getElementById('timeline-connections');
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                line.setAttribute("id", "drag-line");
+                line.setAttribute("class", "connection-path");
+                line.setAttribute("stroke-dasharray", "5,5");
+                line.setAttribute("stroke-opacity", "0.6");
+                
+                const sourceEvent = state.events.find(ev => ev.id === id);
+                if (sourceEvent) {
+                     line.setAttribute("stroke", sourceEvent.color);
+                     line.setAttribute("stroke-width", "3");
+                }
+                
+                svg.appendChild(line);
+                
+                // Prevent text selection during drag
+                document.body.style.userSelect = 'none';
+            },
+
+            handleDragMove: (e) => {
+                if (!state.dragSourceId) return;
+
+                const container = document.getElementById('timeline-container');
+                const rect = container.getBoundingClientRect();
+                
+                // Calculate drag distance to determine if it's a "drag" or just a "click"
+                const dx = e.clientX - state.dragStartCoords.x;
+                const dy = e.clientY - state.dragStartCoords.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist > 5) {
+                    container.classList.add('is-dragging');
+                    
+                    // Draw Line
+                    const sourceEvent = state.events.find(ev => ev.id === state.dragSourceId);
+                    if (sourceEvent && app.timeScale) {
+                        const x1 = app.timeScale(new Date(sourceEvent.date));
+                        // Approximate vertical center for cards vs markers
+                        const y1 = sourceEvent.type === 'marker' ? 55 : 100; 
+                        
+                        const mouseX = e.clientX - rect.left + container.scrollLeft;
+                        const mouseY = e.clientY - rect.top;
+                        
+                        const line = document.getElementById('drag-line');
+                        if (line) {
+                            // Simple curve to mouse pointer
+                            const cx = (x1 + mouseX) / 2;
+                            const cy = (y1 + mouseY) / 2;
+                            line.setAttribute("d", `M ${x1} ${y1} Q ${cx} ${cy} ${mouseX} ${mouseY}`);
+                        }
+                    }
+                }
+            },
+
+            handleDragEnd: (e, targetId) => {
+                if (!state.dragSourceId) return;
+
+                const sourceId = state.dragSourceId;
+                const container = document.getElementById('timeline-container');
+                
+                // Cleanup visuals
+                const line = document.getElementById('drag-line');
+                if (line) line.remove();
+                container.classList.remove('is-dragging');
+                document.body.style.userSelect = '';
+                
+                // Logic: Click vs Drag
+                const dx = e.clientX - state.dragStartCoords.x;
+                const dy = e.clientY - state.dragStartCoords.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                state.dragSourceId = null;
+                state.dragStartCoords = null;
+
+                if (dist < 5) {
+                    // It was a click, open editor for source
+                    // (Unless we clicked a handle, but handles are gone now)
+                    app.openEditor(sourceId);
+                } else {
+                    // It was a drag. Check if we dropped on a valid target
+                    // Note: 'targetId' comes from the onmouseup handler on the cue elements
+                    if (targetId && typeof targetId === 'string' && targetId !== sourceId) {
+                        // Create Connection
+                        // Check if exists
+                        const exists = state.connections.find(c => 
+                            (c.from === sourceId && c.to === targetId) || 
+                            (c.from === targetId && c.to === sourceId)
+                        );
+                        
+                        if (!exists) {
+                            state.connections.push({ id: crypto.randomUUID(), from: sourceId, to: targetId });
+                            app.saveData();
+                            app.renderTimeline();
+                        }
+                    }
+                }
             },
 
             updateClock: () => {
@@ -570,6 +681,10 @@
 
                 const track = document.getElementById('timeline-track');
                 track.style.width = `${totalWidth}px`;
+                
+                // Update instruction text
+                const instr = document.getElementById('instruction-text');
+                instr.innerHTML = 'Scroll to explore • Click empty space to add event • Drag markers to connect';
 
                 const axisHTML = [];
                 const gridHTML = [];
@@ -633,15 +748,13 @@
                 markers.forEach(ev => {
                     const x = app.timeScale(new Date(ev.date));
                     const iconEl = `<i data-lucide="${ev.icon || 'star'}" width="20" height="20"></i>`;
-                    const isConnecting = state.connectingSourceId === ev.id;
-                    const ringClass = isConnecting ? 'ring-4 ring-pink-500 ring-opacity-50' : '';
                     const variant = ev.variant || 'badge';
 
                     // Marker Variants
                     let markerInner = '';
                     if (variant === 'pin') {
                          markerInner = `
-                            <div onclick="app.openEditor('${ev.id}')" class="cursor-pointer hover:-translate-y-1 transition-transform relative text-white ${ringClass}">
+                            <div class="cursor-pointer hover:-translate-y-1 transition-transform relative text-white">
                                 <div class="w-8 h-8 rounded-t-full rounded-bl-full rotate-45 flex items-center justify-center shadow-md border-2 border-white" style="background-color: ${ev.color};">
                                     <div class="-rotate-45">${iconEl}</div>
                                 </div>
@@ -649,7 +762,7 @@
                         `;
                     } else if (variant === 'orb') {
                         markerInner = `
-                            <div onclick="app.openEditor('${ev.id}')" class="cursor-pointer hover:scale-110 transition-transform relative ${ringClass}">
+                            <div class="cursor-pointer hover:scale-110 transition-transform relative">
                                 <div class="w-8 h-8 rounded-full shadow-[0_0_15px_rgba(0,0,0,0.2)] border-2 border-white flex items-center justify-center backdrop-blur-sm" style="background: radial-gradient(circle at 30% 30%, white, ${ev.color});">
                                      <div class="text-slate-900 opacity-70">${iconEl}</div>
                                 </div>
@@ -658,7 +771,7 @@
                     } else {
                         // Default Badge
                         markerInner = `
-                            <div onclick="app.openEditor('${ev.id}')" class="cursor-pointer hover:scale-110 transition-transform p-2 rounded-full shadow-lg border-4 border-slate-50 relative text-white ${ringClass}" style="background-color: ${ev.color}">
+                            <div class="cursor-pointer hover:scale-110 transition-transform p-2 rounded-full shadow-lg border-4 border-slate-50 relative text-white" style="background-color: ${ev.color}">
                                 ${iconEl}
                             </div>
                         `;
@@ -667,14 +780,13 @@
                     const markerHTML = `
                         <div class="absolute top-[50px] bottom-0 w-1 pointer-events-none z-0 opacity-80" style="left: ${x}px; transform: translateX(-50%); background: linear-gradient(to bottom, ${ev.color}, transparent);"></div>
                         <div class="absolute top-[26px] z-30 transform -translate-x-1/2 left-[${x}px]" style="left: ${x}px">
-                            <div class="flex flex-col items-center group relative">
-                                <!-- Handles -->
-                                <button onclick="app.handleConnect(event, '${ev.id}')" class="cue-handle absolute left-[-20px] top-[10px] w-4 h-4 bg-slate-300 rounded-full border-2 border-white shadow-sm hover:bg-pink-500 z-40" title="Connect"></button>
-                                <button onclick="app.handleConnect(event, '${ev.id}')" class="cue-handle absolute right-[-20px] top-[10px] w-4 h-4 bg-slate-300 rounded-full border-2 border-white shadow-sm hover:bg-pink-500 z-40" title="Connect"></button>
-
+                            <div 
+                                class="flex flex-col items-center group relative hover:z-40"
+                                onmousedown="app.handleDragStart(event, '${ev.id}')"
+                                onmouseup="app.handleDragEnd(event, '${ev.id}')"
+                            >
                                 ${markerInner}
-                                
-                                <div class="mt-1 bg-white/90 backdrop-blur text-[11px] font-bold px-3 py-0.5 rounded-full border shadow-sm whitespace-nowrap flex flex-col items-center" style="color: ${ev.color}; border-color: ${ev.color}">
+                                <div class="mt-1 bg-white/90 backdrop-blur text-[11px] font-bold px-3 py-0.5 rounded-full border shadow-sm whitespace-nowrap flex flex-col items-center pointer-events-none select-none" style="color: ${ev.color}; border-color: ${ev.color}">
                                     <span>${ev.title}</span>
                                 </div>
                             </div>
@@ -719,8 +831,8 @@
                         contentHTML = `
                             <div class="bg-[#fef08a] text-yellow-900 p-3 shadow-md w-[150px] min-h-[80px] relative font-serif" style="background-color: ${ev.color}">
                                 <div class="absolute -top-2 left-1/2 -translate-x-1/2 w-16 h-4 bg-white/40 opacity-50 rotate-1"></div>
-                                <h4 class="font-bold text-sm leading-tight mb-1 italic">${ev.title}</h4>
-                                <p class="text-[10px] opacity-90 leading-tight line-clamp-3">${ev.description || ''}</p>
+                                <h4 class="font-bold text-sm leading-tight mb-1 italic pointer-events-none select-none">${ev.title}</h4>
+                                <p class="text-[10px] opacity-90 leading-tight line-clamp-3 pointer-events-none select-none">${ev.description || ''}</p>
                             </div>
                         `;
                     } 
@@ -732,7 +844,7 @@
                                 <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style="border-color: ${ev.color}">
                                     ${isDone ? `<div class="w-2 h-2 rounded-full bg-slate-400"></div>` : ''}
                                 </div>
-                                <span class="text-xs font-medium text-slate-700 truncate ${isDone ? 'line-through' : ''}">${ev.title}</span>
+                                <span class="text-xs font-medium text-slate-700 truncate ${isDone ? 'line-through' : ''} pointer-events-none select-none">${ev.title}</span>
                             </div>
                         `;
                     }
@@ -742,12 +854,12 @@
                         contentHTML = `
                             <div class="bg-white border-2 border-slate-900 rounded-lg overflow-hidden w-[170px] shadow-hard">
                                 <div class="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 uppercase tracking-wider flex justify-between items-center" style="background-color: ${ev.color === '#f59e0b' ? '#0f172a' : ev.color}">
-                                    <span>${ev.category}</span>
+                                    <span class="pointer-events-none select-none">${ev.category}</span>
                                     ${isDone ? '<i data-lucide="check" width="12"></i>' : ''}
                                 </div>
                                 <div class="p-2">
-                                    <h4 class="font-bold text-sm text-slate-900 leading-tight mb-1">${ev.title}</h4>
-                                    <p class="text-[10px] text-slate-500">${app.formatDateDisplay(ev.date)}</p>
+                                    <h4 class="font-bold text-sm text-slate-900 leading-tight mb-1 pointer-events-none select-none">${ev.title}</h4>
+                                    <p class="text-[10px] text-slate-500 pointer-events-none select-none">${app.formatDateDisplay(ev.date)}</p>
                                 </div>
                             </div>
                         `;
@@ -760,15 +872,20 @@
                              <div class="rounded-lg shadow-sm border p-2 text-left relative overflow-hidden flex items-start space-x-2 bg-white" style="border-left: 4px solid ${isDone ? '#cbd5e1' : ev.color}">
                                 ${iconCheck}
                                 <div class="flex-1 min-w-0">
-                                    <h4 class="font-semibold text-xs truncate ${isDone ? 'line-through text-slate-500' : 'text-slate-800'}">${ev.title}</h4>
-                                    <p class="text-[10px] text-slate-500 truncate">${app.formatDateDisplay(ev.date)}</p>
+                                    <h4 class="font-semibold text-xs truncate ${isDone ? 'line-through text-slate-500' : 'text-slate-800'} pointer-events-none select-none">${ev.title}</h4>
+                                    <p class="text-[10px] text-slate-500 truncate pointer-events-none select-none">${app.formatDateDisplay(ev.date)}</p>
                                 </div>
                             </div>
                         `;
                     }
 
                     const cardHTML = `
-                        <div onclick="app.openEditor('${ev.id}')" class="${wrapperClass}" style="left: ${x}px; top: ${top}px;">
+                        <div 
+                            class="${wrapperClass}" 
+                            style="left: ${x}px; top: ${top}px;"
+                            onmousedown="app.handleDragStart(event, '${ev.id}')"
+                            onmouseup="app.handleDragEnd(event, '${ev.id}')"
+                        >
                             ${variant !== 'postit' ? `<div class="absolute h-full w-0.5 bg-slate-300 -top-4 left-0 -z-10 group-hover:bg-slate-400 transition-colors" style="height: 20px;"></div>` : ''}
                             ${contentHTML}
                         </div>
@@ -780,22 +897,7 @@
                 lucide.createIcons();
             },
 
-            handleConnect: (e, id) => {
-                e.stopPropagation();
-                if (state.connectingSourceId === null) {
-                    state.connectingSourceId = id;
-                    app.renderTimeline(); 
-                } else if (state.connectingSourceId === id) {
-                    state.connectingSourceId = null;
-                    app.renderTimeline();
-                } else {
-                    state.connections.push({ id: crypto.randomUUID(), from: state.connectingSourceId, to: id });
-                    state.connectingSourceId = null;
-                    app.saveData();
-                    app.renderTimeline();
-                }
-            },
-
+            // Unchanged from previous version but included for completeness of renderTimeline context
             renderConnections: () => {
                 const svg = document.getElementById('timeline-connections');
                 svg.innerHTML = '';
@@ -807,24 +909,39 @@
                     if (fromEv && toEv) {
                         const x1 = app.timeScale(new Date(fromEv.date));
                         const x2 = app.timeScale(new Date(toEv.date));
-                        const y = 60;
+                        
+                        // Dynamic Y adjustment based on type
+                        const y1 = fromEv.type === 'marker' ? 55 : 100;
+                        const y2 = toEv.type === 'marker' ? 55 : 100;
+                        
                         const cx = (x1 + x2) / 2;
-                        const cy = y + Math.abs(x2 - x1) * 0.2;
+                        const dist = Math.abs(x2 - x1);
+                        const cy = Math.max(y1, y2) + Math.min(150, dist * 0.3);
                         
                         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                        path.setAttribute("d", `M ${x1} ${y} Q ${cx} ${cy + 50} ${x2} ${y}`);
+                        path.setAttribute("d", `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
                         path.setAttribute("class", "connection-path");
-                        path.setAttribute("stroke-dasharray", "5,5");
+                        path.setAttribute("stroke", fromEv.color);
+                        path.setAttribute("stroke-width", "2");
                         
-                        path.onclick = (e) => {
+                        const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                        hitArea.setAttribute("d", `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
+                        hitArea.setAttribute("class", "connection-hit-area");
+                        
+                        const deleteHandler = (e) => {
                             e.stopPropagation();
-                            if(confirm('Remove this connection?')) {
+                            if(confirm(`Remove connection between "${fromEv.title}" and "${toEv.title}"?`)) {
                                 state.connections = state.connections.filter(c => c.id !== conn.id);
                                 app.saveData();
                                 app.renderTimeline();
                             }
                         };
+                        
+                        path.onclick = deleteHandler;
+                        hitArea.onclick = deleteHandler;
+                        
                         svg.appendChild(path);
+                        svg.appendChild(hitArea);
                     }
                 });
             },
@@ -835,9 +952,14 @@
                 const completedTodos = todos.filter(e => e.isCompleted).length;
                 const facts = state.events.filter(e => e.category === 'FACT').length;
 
-                document.getElementById('stat-milestone').innerText = milestones;
-                document.getElementById('stat-todo').innerHTML = completedTodos > 0 ? `<span class="opacity-60">${completedTodos}/</span>${todos.length}` : todos.length;
-                document.getElementById('stat-fact').innerText = facts;
+                const msEl = document.getElementById('stat-milestone');
+                if(msEl) msEl.innerText = milestones;
+                
+                const todoEl = document.getElementById('stat-todo');
+                if(todoEl) todoEl.innerHTML = completedTodos > 0 ? `<span class="opacity-60">${completedTodos}/</span>${todos.length}` : todos.length;
+                
+                const factEl = document.getElementById('stat-fact');
+                if(factEl) factEl.innerText = facts;
             },
 
             openDrawer: (category) => {
@@ -879,11 +1001,10 @@
             },
 
             openEditor: (id = null, type = 'standard', date = null) => {
-                state.editingId = id; // Track strictly in state
+                state.editingId = id;
                 const modal = document.getElementById('editor-modal');
                 modal.classList.remove('hidden');
                 
-                // Safe find logic
                 const event = id ? state.events.find(e => String(e.id) === String(id)) : null;
                 
                 const picker = document.getElementById('icon-picker');
@@ -902,14 +1023,12 @@
                 document.getElementById('edit-color').value = event ? event.color : COLORS.MILESTONE;
                 document.getElementById('edit-completed').checked = event ? event.isCompleted : false;
                 
-                // Set Type & Variant
                 app.setEditorType(event ? event.type : type);
                 app.selectVariant(event ? (event.variant || 'modern') : null);
                 
                 if (event && event.icon) app.selectIcon(event.icon);
                 else app.selectIcon('star');
 
-                // Toggle delete button
                 document.getElementById('btn-delete').style.display = id ? 'flex' : 'none';
                 document.getElementById('editor-title').innerText = id ? 'Edit Item' : 'New Item';
             },
@@ -986,8 +1105,7 @@
 
             handleEditorSubmit: (e) => {
                 e.preventDefault();
-                // Use state.editingId for update logic to match deleteCurrentEvent behavior
-                const id = state.editingId; // was document.getElementById('edit-id').value;
+                const id = state.editingId;
                 const title = document.getElementById('edit-title').value;
                 const date = document.getElementById('edit-date').value;
                 const desc = document.getElementById('edit-desc').value;
@@ -1010,38 +1128,33 @@
                 };
 
                 if (id) {
-                    // Update existing
                     const idx = state.events.findIndex(e => String(e.id) === String(id));
                     if (idx !== -1) state.events[idx] = eventData;
                 } else {
-                    // Create new
                     state.events.push(eventData);
                 }
 
                 app.saveData();
                 app.renderTimeline();
+                app.renderHeader(); // Ensure stats update
                 app.closeEditor();
             },
 
             deleteCurrentEvent: () => {
-                // Rely on state variable instead of DOM for ID
                 const id = state.editingId;
-                
                 if (!id) {
-                    console.error("No ID found to delete");
                     app.closeEditor();
                     return;
                 }
 
                 if (confirm('Delete this item?')) {
                     const idStr = String(id);
-                    // Filter arrays
                     state.events = state.events.filter(e => String(e.id) !== idStr);
                     state.connections = state.connections.filter(c => String(c.from) !== idStr && String(c.to) !== idStr);
                     
                     app.saveData();
                     app.renderTimeline();
-                    app.renderHeader(); // Update stats
+                    app.renderHeader();
                     app.closeEditor();
                 }
             }
