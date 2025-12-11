@@ -12,8 +12,8 @@
     "d3-scale": "latest",
     "d3-time": "latest",
     "@google/genai": "latest",
-    "lucide-react": "^0.559.0",
-    "react": "^19.2.1"
+    "react": "^19.2.1",
+    "lucide-react": "^0.560.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
